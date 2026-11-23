@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import torch, torch_npu
 from types import SimpleNamespace
-from kimi_scoring_candidate import kimi_v2_logprobs, masked_entropy
+from verl.utils.kimi_alignment.kimi_scoring import kimi_v2_logprobs, masked_entropy
 from verl.utils.kimi_logprob import mask_kimi_generation_logits
 from verl.utils.torch_functional import logprobs_from_logits
 from vllm_ascend.worker.v2.sample.logprob import compute_token_logprobs

@@ -3,7 +3,7 @@ import os, json
 from pathlib import Path
 import torch, torch_npu
 from safetensors import safe_open
-from kda_alignment import canonical_kda, serving_decode
+from vllm_ascend.ops.kimi_alignment.kda_alignment import canonical_kda, serving_decode
 from fsdp_turbo.ops.kda import chunk_kda
 
 w = Path('/mnt/share/y00938198/kimi-k31/test_wxx_skill')

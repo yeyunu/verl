@@ -1608,7 +1608,7 @@ class PPOTrainer(ABC):
         if os.environ.get("KIMI_ALIGNMENT_AUDIT_DIR"):
             import time
             from pathlib import Path
-            from alignment_audit import freeze_inputs
+            from verl.utils.kimi_alignment.alignment_audit import freeze_inputs
             rollout_snapshot = tq.kv_batch_get(keys=batch.keys, partition_id=batch.partition_id)
             snapshot_dir = Path(os.environ["KIMI_ALIGNMENT_AUDIT_DIR"]) / "rollout_before_recompute"
             snapshot_dir.mkdir(parents=True, exist_ok=True)

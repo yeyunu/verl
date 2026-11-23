@@ -80,7 +80,7 @@ class SingleTurnAgentLoop(AgentLoopBase):
                 priority=priority,
             )
         if os.environ.get("KIMI_ALIGNMENT_SERVING_PROBE") == "1":
-            from serving_invariance_probe import replay_prefix
+            from verl.utils.kimi_alignment.serving_probe import replay_prefix
             await replay_prefix(self, request_id, prompt_ids, output.token_ids, dict(
                 image_data=images, audio_data=audios, video_data=videos,
                 mm_processor_kwargs=mm_processor_kwargs, priority=priority))

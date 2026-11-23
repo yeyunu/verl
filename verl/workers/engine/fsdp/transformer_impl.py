@@ -181,6 +181,21 @@ def _load_hf_language_model(
     torch_dtype,
     load_pretrained=True,
 ):
+    if (
+        getattr(model_config.hf_config, "model_type", None) == "kimi_k31"
+        and os.environ.get("KIMI_ALIGNMENT_RECURRENT_KDA") == "1"
+    ):
+        from fsdp_turbo.models.kimi.kimi_k31.dsa import KimiK31ForConditionalGeneration
+
+        if not load_pretrained:
+            return KimiK31ForConditionalGeneration._from_config(
+                model_config.hf_config, torch_dtype=torch_dtype
+            )
+        return KimiK31ForConditionalGeneration.from_pretrained(
+            pretrained_model_name_or_path=model_config.local_path,
+            torch_dtype=torch_dtype,
+            config=model_config.hf_config,
+        )
     if not load_pretrained:
         return auto_class.from_config(
             model_config.hf_config,
@@ -1709,7 +1724,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
         compute_entropy = self.compute_entropy_from_logits
         direct_entropy = verl_F.entropy_from_logits
         if is_kimi_model(self.model_config.hf_config):
-            from kimi_scoring import masked_entropy, kimi_v2_logprobs
+            from verl.utils.kimi_alignment.kimi_scoring import masked_entropy, kimi_v2_logprobs
             compute_entropy = direct_entropy = masked_entropy
             if os.environ.get("KIMI_ALIGNMENT_V2_SCORING") == "1":
                 score_logprobs = kimi_v2_logprobs
@@ -2042,7 +2057,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
         with autocast_ctx:
             alignment_context = nullcontext()
             if os.environ.get("KIMI_ALIGNMENT_AUDIT_DIR"):
-                from alignment_audit import trace_actual_forward
+                from verl.utils.kimi_alignment.alignment_audit import trace_actual_forward
                 alignment_context = trace_actual_forward(self, model_inputs, micro_batch, forward_only)
             with alignment_context:
                 raw_output = self.module(
@@ -2051,9 +2066,9 @@ class FSDPEngineWithLMHead(FSDPEngine):
                 )  # prevent model thinks we are generating
 
             if forward_only and os.environ.get("KIMI_ALIGNMENT_PREFIX_PROBE") == "1":
-                from alignment_audit import probe_prefix
+                from verl.utils.kimi_alignment.alignment_audit import probe_prefix
                 probe_prefix(self, model_inputs, raw_output, micro_batch)
-                from alignment_audit import replay_fixed_failure
+                from verl.utils.kimi_alignment.alignment_audit import replay_fixed_failure
                 replay_fixed_failure(self, model_inputs)
 
             model_output = self.prepare_model_outputs(
@@ -2061,7 +2076,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
             )
 
             if os.environ.get("KIMI_ALIGNMENT_AUDIT_DIR"):
-                from alignment_audit import capture_forward
+                from verl.utils.kimi_alignment.alignment_audit import capture_forward
                 capture_forward(self, micro_batch, model_inputs, model_output, forward_only)
 
             if loss_function is not None:

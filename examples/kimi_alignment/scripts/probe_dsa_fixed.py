@@ -63,7 +63,7 @@ with torch.no_grad():
     for eps in (1e-5,1e-6):check(f'kvnorm_eps{eps}_training',torch_npu.npu_rms_norm(kv[:,:512].contiguous(),kw,epsilon=eps)[0],training('kv_a_layernorm'))
     if mode=='serving':
         from types import SimpleNamespace
-        from dsa_alignment import write_raw_nope_cache
+        from vllm_ascend.ops.kimi_alignment.dsa_alignment import write_raw_nope_cache
         impl=SimpleNamespace(qk_rope_head_dim=64,kv_lora_rank=512,enable_sparse_sfa_c8=False,enable_sparse_sfa_turboquant=False,
             kv_a_layernorm=lambda x:torch_npu.npu_rms_norm(x,kw,epsilon=1e-6)[0])
         pages=(n+4+127)//128
