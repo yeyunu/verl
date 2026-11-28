@@ -21,7 +21,10 @@ def freeze_inputs(value):
 def capture_forward(engine, micro_batch, model_inputs, model_output, forward_only):
     root=os.environ.get('KIMI_ALIGNMENT_AUDIT_DIR')
     if not root: return
-    p=Path(root)/'workers';p.mkdir(parents=True,exist_ok=True)
+    keys = freeze_inputs(micro_batch["rollout_key"]) if "rollout_key" in micro_batch else []
+    final_probe = bool(keys) and all(str(k).startswith("alignment-final-v") for k in keys)
+    folder = Path(root) / "post-update-fixed" if final_probe else Path(root)
+    p=folder/'workers';p.mkdir(parents=True,exist_ok=True)
     lp=model_output.get('log_probs')
     if lp is None: return
     record={'rank':engine.rank,'forward_only':bool(forward_only),

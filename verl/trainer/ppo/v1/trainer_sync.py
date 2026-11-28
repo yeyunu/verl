@@ -36,6 +36,10 @@ class PPOTrainerSync(PPOTrainer):
         with marked_timer("update_weights", self.timing_raw, color="red"):
             # wake up all replicas to update weights
             self.checkpoint_manager.update_weights(self.global_steps)
+        if (os.environ.get("KIMI_ALIGNMENT_FINAL_FIXED_PROBE") == "1"
+                and self.global_steps == self.total_training_steps):
+            from final_policy_probe import run_after_publication
+            run_after_publication(self, os.environ["KIMI_RESULT_DIR"])
 
     def on_sample_end(self):
         # sleep all replicas to discard weights and kv cache

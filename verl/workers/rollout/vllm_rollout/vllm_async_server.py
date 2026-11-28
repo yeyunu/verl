@@ -934,6 +934,10 @@ class vLLMHttpServer:
         if self.node_rank != 0 or not self.config.free_cache_engine:
             return
 
+        if os.environ.get("KIMI_ALIGNMENT_SYNC_DIAGNOSTIC") == "1":
+            from serving_invariance_probe import before_first_sleep
+            await before_first_sleep(self)
+
         if self.rollout_mode == RolloutMode.HYBRID:
             await self._sleep_hybrid()
         elif self.rollout_mode == RolloutMode.COLOCATED:

@@ -238,6 +238,10 @@ class vLLMColocateWorkerExtension:
             # patch weight loader to support MoE model
             patch_vllm_moe_model_weight_loader(model)
 
+    def capture_kimi_initial_state(self):
+        from checkpoint_state import capture
+        capture(self, "before")
+
     def update_weights_from_ipc(self, peft_config: dict = None, base_sync_done=False, use_shm: bool = False):
         """Update the weights of the rollout model."""
         from verl.workers.rollout.vllm_rollout.bucketed_weight_transfer import BucketedWeightReceiver
@@ -363,6 +367,10 @@ class vLLMColocateWorkerExtension:
             for model, model_config in self._iter_all_models_with_config():
                 process_weights_after_loading(model, model_config, self.device)
 
+        if os.environ.get("KIMI_ALIGNMENT_SYNC_DIAGNOSTIC") == "1":
+            from checkpoint_state import capture
+            capture(self, "after")
+
     def _apply_buffer_updates_all_models(self, buffer_updates, main_named_buffers):
         """Apply buffer updates to the main model and any synced MTP drafter.
 
@@ -401,11 +409,16 @@ class vLLMColocateWorkerExtension:
             # Full models may defer many layers until the final bucket. Keep
             # their owned IPC copies on CPU when device staging would exceed HBM.
             buffer_on_cpu = os.environ.get("VERL_VLLM_LAYERWISE_RELOAD_CPU", "0") == "1"
+            def owned_weights():
+                shard_vocab = os.environ.get("KIMI_ALIGNMENT_VOCAB_SHARD_SYNC") == "1"
+                if shard_vocab:
+                    from vocab_alignment import decode_weight
+                for name, tensor in weights:
+                    owned = tensor.to(device="cpu", copy=True) if buffer_on_cpu else tensor.clone()
+                    yield decode_weight(name, owned) if shard_vocab else (name, owned)
+
             for model in self._iter_all_models():
-                model.load_weights(
-                    (name, tensor.to(device="cpu", copy=True) if buffer_on_cpu else tensor.clone())
-                    for name, tensor in weights
-                )
+                model.load_weights(owned_weights())
         else:
             param_updates, buffer_updates, named_buffers = split_buffer_updates(self.model_runner.model, weights)
             # Add the FP8 related logic here as sharding manager has been deprecated.

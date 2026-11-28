@@ -78,7 +78,21 @@ class FSDPTurboEngineWithLMHead(FSDPEngineWithLMHead):
             if self.model_config.hf_config.model_type in {"kimi_k3", "kimi_k31"}:
                 load_pretrained = False
                 force_meta = True
-            return super()._build_module(load_pretrained=load_pretrained, force_meta=force_meta)
+            module = super()._build_module(load_pretrained=load_pretrained, force_meta=force_meta)
+            if (self.model_config.hf_config.model_type in {"kimi_k3", "kimi_k31"}
+                    and os.environ.get("KIMI_ALIGNMENT_KEEP_KDA_FP32") == "1"):
+                # The real checkpoint is streamed into these local shards after wrapping.
+                # Restore storage dtype on meta only, before any tensor values are loaded.
+                for attention in module.modules():
+                    if not all(name in attention._parameters for name in ("A_log", "dt_bias")):
+                        continue
+                    for name in ("A_log", "dt_bias"):
+                        param = getattr(attention, name)
+                        if not param.is_meta:
+                            raise RuntimeError("KDA precision setup must precede checkpoint loading")
+                        param.data = param.data.float()
+                    attention._kimi_preserve_gate_precision = True
+            return module
         finally:
             self.ulysses_sequence_parallel_size = cp_size
 
@@ -106,6 +120,9 @@ class FSDPTurboEngineWithLMHead(FSDPEngineWithLMHead):
                 None if zero_init else self.model_config.local_path,
                 materialize_device=materialize_device,
             )
+            if os.environ.get("KIMI_ALIGNMENT_SERVING_PROBE") == "1" and os.environ.get("KIMI_ALIGNMENT_AUDIT_DIR"):
+                from shard_evidence import record
+                record(self,module,self.model_config.local_path,zero_init)
             if torch.distributed.is_available() and torch.distributed.is_initialized():
                 torch.distributed.barrier()
             return module
@@ -186,6 +203,10 @@ class FSDPTurboEngineWithLMHead(FSDPEngineWithLMHead):
 
         from fsdp_turbo.training.clip_grads import clip_grad_norm
 
+        policy_before = None
+        if os.environ.get("KIMI_ALIGNMENT_SERVING_PROBE") == "1" and os.environ.get("KIMI_ALIGNMENT_AUDIT_DIR"):
+            from shard_evidence import policy_samples
+            policy_before = policy_samples(self.module)
         grad_norm = clip_grad_norm(model=self.module, max_norm=self.optimizer_config.clip_grad)
         if not math.isfinite(grad_norm):
             rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
@@ -205,4 +226,7 @@ class FSDPTurboEngineWithLMHead(FSDPEngineWithLMHead):
 
             invalidate_all_scales(self.module)
 
+        if policy_before is not None:
+            from shard_evidence import record_update
+            record_update(self,policy_before,grad_norm)
         return grad_norm

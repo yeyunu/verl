@@ -789,9 +789,14 @@ class FSDPEngine(BaseEngine):
         # Load base model with specified configuration and dtype
         module = self._build_module()
         try:
-            self.pass_packed_cu_seqlens = "cu_seqlens" in signature(module.forward).parameters
+            params = signature(module.forward).parameters
+            self.pass_packed_cu_seqlens = "cu_seqlens" in params
+            self.pass_packed_cu_seqlens_cpu = "cu_seqlens_cpu" in params or any(
+                param.kind == param.VAR_KEYWORD for param in params.values()
+            )
         except (TypeError, ValueError):
             self.pass_packed_cu_seqlens = False
+            self.pass_packed_cu_seqlens_cpu = False
         # Apply LoRA adapters if low-rank adaptation is enabled
         if self._is_lora:
             module = self._build_lora_module(module)
@@ -1257,6 +1262,13 @@ class FSDPEngine(BaseEngine):
 
             def iter_rollout_params():
                 for name, param in params.items():
+                    if (kimi_rollout_layout is not None
+                            and self.model_config.hf_config.model_type in {"kimi_k3", "kimi_k31"}
+                            and os.environ.get("KIMI_ALIGNMENT_VOCAB_SHARD_SYNC") == "1"):
+                        from vocab_alignment import export_vocab_weight, is_vocab_weight
+                        if is_vocab_weight(name):
+                            yield export_vocab_weight(name, param, device, kimi_rollout_layout)
+                            continue
                     if _is_kimi_packed_expert_param(name, param):
                         marked_name, local_param = export_kimi_packed_local_param(
                             name, param, device, kimi_rollout_layout
@@ -1552,7 +1564,8 @@ class FSDPEngineWithLMHead(FSDPEngine):
                         ]
                     )
                 model_inputs["cu_seqlens"] = model_cu_seqlens
-                model_inputs["cu_seqlens_cpu"] = model_cu_seqlens.cpu()
+                if getattr(self, "pass_packed_cu_seqlens_cpu", False):
+                    model_inputs["cu_seqlens_cpu"] = model_cu_seqlens.cpu()
 
         else:
             if pad_mode == DatasetPadMode.NO_PADDING:
